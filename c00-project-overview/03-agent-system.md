@@ -189,4 +189,27 @@ Coordinator 模式是多 Agent 系统的"大脑"。启用后（`CLAUDE_CODE_COOR
 
 安全策略采用 **fail-closed** 设计：如果 Worktree 中有未提交的变更，`ExitWorktreeTool` 会拒绝删除，除非显式指定 `discard_changes: true`。
 
+#### Worktree 解决的是"改的时候不冲突"，不是"合并时不冲突"
+
+多个 Agent 各自在独立 Worktree 里改完代码后，最终还是要合并——跟多人用 Git 协作完全一样：
+
+```
+主仓库 (main 分支)
+  │
+  ├── Agent A 创建 Worktree → 新分支 agent-a-fix-auth
+  │     独立目录，随便改，不影响任何人
+  │
+  ├── Agent B 创建 Worktree → 新分支 agent-b-add-tests
+  │     独立目录，随便改，不影响任何人
+  │
+  ├── Agent A 改完，commit + 创建 PR
+  ├── Agent B 改完，commit + 创建 PR
+  │
+  └── 合并阶段（跟正常多人协作一样）
+        ├── PR A 先合进 main ✅
+        └── PR B 合并时如果有冲突 → 解决冲突后再合
+```
+
+普通的 `git checkout` 一次只能切一个分支，但 Worktree 可以同时在磁盘上存在多个工作目录，每个 Agent 各占一个。如果两个 Agent 改了同一个文件的同一行，合并时一样会冲突，需要解决——这点没有任何魔法。
+
 > **下一节**：[0.4 UI 渲染管线](./04-ui-rendering.md) — 探索 Claude Code 如何用 React 渲染终端界面。
