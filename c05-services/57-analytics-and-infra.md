@@ -1,6 +1,6 @@
-# 5.7-5.12 Analytics、OAuth、LSP、Plugin 与智能后台服务
+# 5.7-5.12 Analytics、OAuth、LSP、Plugin、Hooks 与智能后台服务
 
-> 本节覆盖服务层的剩余部分：可观测性、安全认证、代码智能、插件管理，以及几个令人惊喜的"智能后台"服务。
+> 本节覆盖服务层的剩余部分：可观测性、安全认证、代码智能、插件管理、生命周期 Hooks，以及几个令人惊喜的"智能后台"服务。
 
 ## 5.7 Analytics 服务 — 可观测性
 
@@ -227,6 +227,102 @@ export function tokenCountWithEstimation(messages: Message[]): number
 ### 5.12.4 rateLimitMessages — 限流消息
 
 集中管理所有限流消息的生成，避免在多处重复编写相同的用户提示。
+
+---
+
+## 5.13 Hooks 服务 — 生命周期拦截器
+
+Hooks 让用户可以在 Claude Code 的关键操作节点上"埋钩子"——工具执行前拦截、执行后检查、会话开始时初始化。它是唯一一个让**用户代码**能直接阻止 Claude 行为的机制。
+
+### 一个例子秒懂
+
+不希望 Claude 修改 `package.json`：
+
+```json
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "python3 -c \"import sys,json; d=json.load(sys.stdin); sys.exit(2) if 'package.json' in str(d.get('tool_input',{})) else sys.exit(0)\""
+        }]
+      }
+    ]
+  }
+}
+```
+
+每次 Claude 要用 Edit 或 Write 时，这个脚本先跑一遍。目标是 `package.json` 就返回 exit code 2（阻断）。
+
+### 主要 Hook 事件
+
+| 事件 | 触发时机 | 能做什么 |
+|------|---------|---------|
+| **PreToolUse** | 工具执行**之前** | 拦截/放行/修改参数 |
+| **PostToolUse** | 工具执行**之后** | 检查结果/追加上下文 |
+| **UserPromptSubmit** | 用户按回车时 | 拦截/修改用户输入 |
+| **Stop** | Claude 准备结束回复时 | 阻止结束/追加任务 |
+| **SessionStart** | 会话开始时 | 初始化环境 |
+| **FileChanged** | 文件被修改时 | 触发 lint/测试 |
+| **PermissionRequest** | 权限弹窗时 | 自动审批/拒绝 |
+
+共 25 个事件，完整定义在 `src/entrypoints/sdk/coreTypes.ts` 第 25-53 行。
+
+### 四种 Hook 类型
+
+```
+Command  → 跑一个 shell 命令（最常用）
+Prompt   → 让小模型（Haiku）用自然语言判断
+Agent    → 启动一个完整 Agent 多轮验证
+HTTP     → POST 到外部 API（企业审计系统）
+```
+
+### Exit Code 协议（Command Hook）
+
+| Exit Code | 含义 | 效果 |
+|-----------|------|------|
+| **0** | 放行 | 正常继续 |
+| **2** | **阻断** | 拒绝执行，stderr 显示给 Claude |
+| **其他** | 非阻断错误 | stderr 只显示给用户 |
+
+### PreToolUse 可以修改工具参数
+
+不只能放行/拦截，还能**改参数**：
+
+```json
+// Hook 的 stdout 输出
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "updatedInput": {
+      "command": "npm test -- --coverage"
+    }
+  }
+}
+```
+
+Claude 原本要执行 `npm test`，Hook 悄悄改成了 `npm test -- --coverage`。
+
+### 实际应用场景
+
+| 场景 | 事件 | 做法 |
+|------|------|------|
+| 每次写文件后自动 prettier | PostToolUse (Edit\|Write) | command: `prettier --write $file` |
+| 禁止修改 /production/ 目录 | PreToolUse (Edit\|Write\|Bash) | 检查路径，exit 2 拦截 |
+| 企业审计日志 | PreToolUse (*) | HTTP POST 到审计 API |
+| 会话开始时加载项目上下文 | SessionStart | stdout 内容自动喂给 Claude |
+
+### Hooks vs Skills vs Plugins
+
+| | Hooks | Skills | Plugins |
+|---|---|---|---|
+| **干什么** | 拦截/检查/修改行为 | 教新工作流 | 加新能力 |
+| **能阻止 Claude 吗** | **能**（exit 2） | 不能 | 不能 |
+| **本质** | 生命周期拦截器 | Prompt 注入 | 软件包 |
+| **类比** | Git Hooks | 配方/SOP | Chrome 扩展 |
 
 ---
 

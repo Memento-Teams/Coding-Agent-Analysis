@@ -10,7 +10,8 @@
 | [5.2 API 服务](./52-api-service.md) | API Service | 请求编排、智能重试、错误分类 |
 | [5.3-5.4 MCP 与工具执行](./53-mcp-and-tool-execution.md) | MCP & Tool Execution | MCP 连接/认证、流水线执行、并发编排 |
 | [5.5-5.6 Compact 与 Session Memory](./55-compact-and-memory.md) | Compact & Memory | 五层压缩管线、自动对话笔记 |
-| [5.7-5.12 Analytics 与基础设施](./57-analytics-and-infra.md) | Analytics & Infrastructure | 可观测性、OAuth、LSP、Plugin、智能后台 |
+| [5.7-5.13 Analytics、Hooks 与基础设施](./57-analytics-and-infra.md) | Analytics, Hooks & Infrastructure | 可观测性、OAuth、LSP、Plugin、Hooks（25 事件 + 4 类型）、智能后台 |
+| [5.8 扩展机制时间线](./58-extension-timeline.md) | Extension Timeline | MCP → Subagents → Hooks → Plugins → Skills → Teams 的演进 |
 
 ## 前置知识
 
