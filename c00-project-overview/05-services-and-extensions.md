@@ -136,14 +136,19 @@ graph TB
         end
     end
 
-    subgraph HOOKS_SYS["Hooks 系统 (hooks/)"]
-        H_PERM["useCanUseTool (40KB)<br/>权限检查 Hook"]
+    subgraph LIFECYCLE_HOOKS["生命周期 Hooks (settings.json)"]
+        LH_PRE["PreToolUse<br/>工具执行前拦截<br/>放行/阻断/改参数"]
+        LH_POST["PostToolUse<br/>工具执行后检查<br/>追加上下文"]
+        LH_STOP["Stop / SessionStart<br/>会话生命周期"]
+        LH_TYPES["4 种类型：<br/>Command · Prompt<br/>Agent · HTTP"]
+    end
+
+    subgraph REACT_HOOKS["React Hooks (hooks/)"]
+        H_PERM["useCanUseTool (40KB)<br/>权限检查"]
         H_KEY["useGlobalKeybindings<br/>全局快捷键"]
         H_IDE["useIDEIntegration<br/>IDE 通信"]
         H_BG["useBackgroundTaskNavigation<br/>后台任务切换"]
         H_INBOX["useInboxPoller (34KB)<br/>信箱轮询"]
-        H_SUGGEST["fileSuggestions<br/>文件自动补全"]
-        H_MEM["useMemoryUsage<br/>内存监控"]
     end
 
     %% 服务被引擎使用
@@ -176,17 +181,21 @@ graph TB
     class COMPACT,AUTO_COMPACT,MICRO_COMPACT,SESSION_COMPACT,COMPACT_PROMPT,GROUPING compact
     class EVENT_LOG,DATADOG,GROWTHBOOK analytics
     class SKILL_LOAD,SKILL_BUNDLED,SKILL_MCP,SKILL_LIST,PLUGIN_BUILTIN,PLUGIN_LOAD,PLUGIN_HOOK,MCP_SERVERS,MCP_OFFICIAL,MCP_TOOLS_EXT ext
-    class H_PERM,H_KEY,H_IDE,H_BG,H_INBOX,H_SUGGEST,H_MEM hook
+    class LH_PRE,LH_POST,LH_STOP,LH_TYPES ext
+    class H_PERM,H_KEY,H_IDE,H_BG,H_INBOX hook
 ```
 
-## 三大扩展机制对比
+## 四大扩展机制对比
 
-| 机制 | 粒度 | 来源 | 用途 |
-|------|------|------|------|
-| **Skills** | 高层抽象（一个 Skill = 一个完整的工作流） | 内建 17 个 + 用户自定义 (`~/.claude/skills/`) | `/commit`、`/review`、`/pr` 等 Slash Command |
-| **Plugins** | 中层 Hook（拦截工具调用和消息） | 内建 + 用户自定义 | 自定义权限检查、消息过滤等 |
-| **MCP Servers** | 底层工具（每个 Server 暴露一组工具） | 用户配置 (`~/.claude/mcp.json`) | 连接数据库、API、第三方服务 |
+| 机制 | 干什么 | 本质 | 能阻止 Claude 吗？ |
+|------|-------|------|-------------------|
+| **Skills** | 教 Claude 新的工作流（`/commit`、`/review`） | 一个 Markdown 文件 = 一段 Prompt | 不能，只能加能力 |
+| **Hooks** | 在工具执行前后插入自定义检查 | 生命周期拦截器（shell/AI/HTTP） | **能**（exit 2 阻断） |
+| **Plugins** | 给 Claude 加新能力（命令、Agent、LSP） | NPM/Git 软件包 | 不能，只能加能力 |
+| **MCP Servers** | 连接外部服务（数据库、Slack、GitHub） | JSON-RPC 协议网关 | 不能，只能加能力 |
 
-> **关键洞察**：这三种机制形成了一个**扩展金字塔**。MCP 在最底层提供原子能力，Plugin 在中间层提供行为定制，Skill 在最上层提供端到端的工作流。用户可以根据需求在不同层级进行扩展。
+> **关键洞察**：四种机制各司其职——Skills 教 Claude 做事，Hooks 管 Claude 做事，Plugins 给 Claude 加装备，MCP 给 Claude 连外部世界。其中 **Hooks 是唯一能"减"能力的机制**（拦截/阻断），其余三个都是"加"能力的。
+>
+> 它们的演进时间线和互相关系详见 [c05 扩展机制时间线](../c05-services/58-extension-timeline.md)。
 
 > **下一节**：[0.6 数据流全景](./06-data-flow.md) — 从输入到输出，完整追踪一次用户交互的数据流转。
