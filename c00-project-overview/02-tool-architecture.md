@@ -164,6 +164,111 @@ export function getBuiltInAgents() {
 >
 > 这也是为什么源码注释里反复强调 **"at module init time"**（模块初始化时）—— 循环依赖只在这个时刻才是致命的。一旦过了这个时刻，谁引用谁都没关系。
 
+---
+
+### 深入理解：为什么 Lazy 不是"排队等"，而是"压根没去"
+
+#### JS/Python 的 import 不是排队，是套娃
+
+你可能以为 import 是排队——A 加载完轮到 B，B 加载完轮到 C。但实际上 JS/Python 的模块加载是**嵌套**的：遇到 import 就**立刻钻进去**执行那个文件。
+
+```
+A 开始加载
+  → 执行到 import B，暂停 A，跳进 B
+    → B 执行到 import C，暂停 B，跳进 C
+      → C 执行到 import A
+        → A 正在加载中！Node 不会死等，
+          而是返回 A 的"半成品"（已执行的部分）
+        → 如果 C 需要的函数在 A 还没执行到的那一行
+          → undefined 💥
+```
+
+关键：Node 检测到循环时**不会报错，不会等待**，而是默默返回一个不完整的模块。这比报错更危险——你拿到了一个 `undefined`，可能很久之后才发现。
+
+Python 稍好一点，会报 `ImportError: most likely due to a circular import`。
+
+#### Lazy 为什么能解决：看完整的加载时间线
+
+**没有 Lazy 时**（循环爆炸）：
+
+```
+A(tools.ts) 开始加载
+  → import B(TeamCreateTool)，跳进 B
+    → B import C(teamHelpers)，跳进 C
+      → C import A(tools.ts)
+        → A 还在加载中，返回半成品 💥
+```
+
+**有 Lazy 时**（安全）：
+
+```
+A(tools.ts) 开始加载
+  → 遇到 const get = () => require(B)
+    只是创建了一个函数，没有跳进 B，继续往下执行
+  → A 加载完毕 ✅
+
+...之后某个时刻 B、C 也都加载完毕...
+
+...用户操作触发了 get() 调用...
+  → 现在才执行 require(B)
+    → B 加载，import C
+      → C import A → A 早就完整了 ✅
+```
+
+#### "写在文件后面"不行，必须"写在函数里面"
+
+一个常见误解：把 import 写在文件最后几行是不是就行了？**不行**。
+
+```python
+# ❌ 写在文件后面 —— 没用
+class TeamCreateTool:
+    pass
+
+# 虽然在第 10 行而不是第 1 行，但文件加载时仍然会执行到这里
+from tools import assemble_tool_pool  # 💥 一样炸
+
+# ✅ 写在函数里面 —— 有用
+class TeamCreateTool:
+    def call(self):
+        from tools import assemble_tool_pool  # 调用 call() 时才执行
+```
+
+因为文件加载时，**从第 1 行到最后 1 行全部都会执行**。写在第 1 行还是第 100 行没区别。只有写在函数体内，才是"定义了但没执行"——等到函数被调用时才执行。
+
+```
+文件加载时会执行的：
+  ├── 第 1 行   import xxx        ← 执行
+  ├── 第 5 行   class Foo:        ← 执行（创建类）
+  ├── 第 10 行  x = 42            ← 执行
+  ├── 第 15 行  import yyy        ← 执行（写后面也没用）
+  └── 第 20 行  def bar():        ← 执行（创建函数，但函数体不执行）
+                    import zzz    ← ✅ 不执行！等 bar() 被调用时才执行
+```
+
+#### Lazy 是君子协定，不是安全锁
+
+Lazy 没有任何强制机制阻止你"在启动阶段调用它"。如果你在文件顶层写了 `getTeamCreateTool()`，就等于直接 import，循环依然会爆炸。
+
+```tsx
+// 这样写等于没用 Lazy
+const getTeamCreateTool = () => require('./TeamCreateTool.js').TeamCreateTool
+const tool = getTeamCreateTool()  // 💥 在文件顶层立刻调用了
+```
+
+所以 Lazy 的正确使用依赖两条规则：
+1. **只有存在循环依赖的模块才需要 Lazy**——没有环的正常 import 就行
+2. **Lazy getter 只在运行时调用，不在文件顶层调用**——这是写代码的人必须遵守的约定
+
+不同语言对这个问题的态度不同：
+
+| 语言 | 怎么防止循环依赖 |
+|------|---------------|
+| **JS/Python** | 不防止。靠注释和代码规范，你写错了就给你 undefined 或 ImportError |
+| **Go/Rust** | 编译器直接禁止循环 import，逼你在写代码时就把结构理清楚 |
+| **Java** | 类加载器两阶段设计（先创建空壳再填充方法体），基本不存在这个问题 |
+
+> **这不只是 JS/TS 的问题，Python 也一样。** 所有"加载即执行"的语言（JS、Python、Ruby）都会遇到。核心原因相同：模块加载时会执行顶层代码，循环 import 导致拿到半成品模块。Lazy 的本质是把 import 从"文件顶层"移到"函数体内"，利用程序生命周期的天然分隔——启动阶段结束后运行阶段才开始，运行时所有模块必然已加载完毕。
+
 ## 工具分类全景
 
 ```mermaid
