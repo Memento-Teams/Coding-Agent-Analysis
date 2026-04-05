@@ -21,7 +21,148 @@
 | **Feature-Gated** | 需要特定 Feature Flag 才激活 | SleepTool, CronTools |
 | **Lazy 注册** | 延迟加载，打破循环依赖 | AgentTool（因为 Agent 会递归创建 Agent） |
 
-> **为什么需要 Lazy 注册？** AgentTool 可以生成子 Agent，子 Agent 又有自己的工具集（包括 AgentTool）。如果静态注册，会产生循环依赖。Lazy 注册通过延迟加载打破了这个循环。
+> **为什么需要 Lazy 注册？** 这是整个工具系统中最精妙的工程细节之一。下面从零开始讲清楚。
+
+---
+
+### 先理解"循环依赖"是什么问题
+
+用一个生活比喻：
+
+> 想象你在组装一本《员工手册》。手册里有一章叫"如何招聘新员工"。但"如何招聘新员工"这一章里写着："给新员工一本《员工手册》"。
+>
+> 问题来了：你还没写完手册，就要把它交给新员工——但手册里"招聘"那章又需要引用完整的手册。**手册引用了招聘章节，招聘章节又引用了手册本身**。
+
+在代码里，这就叫**循环依赖**（Circular Dependency）。
+
+### 在 Claude Code 里，循环具体发生在哪？
+
+Claude Code 有一个"工具注册表"文件 `tools.ts`，它就像那本《员工手册》——记录了所有 42 个工具。其中有一个工具叫 `TeamCreateTool`（创建 Agent 团队），它就像那个"招聘"章节。
+
+问题链：
+
+```
+第 1 步：tools.ts 说："我要把 TeamCreateTool 登记进来"
+           → 于是去加载 TeamCreateTool 的代码
+
+第 2 步：TeamCreateTool 说："我要创建团队，需要知道团队成员能用哪些工具"
+           → 于是去加载 swarm/teamHelpers.ts
+
+第 3 步：teamHelpers.ts 说："我要组装工具列表，需要用 tools.ts 里的 assembleToolPool 函数"
+           → 于是去加载 tools.ts
+
+💥 问题！tools.ts 正在第 1 步加载中，还没加载完！
+   teamHelpers 拿到的是一个"半成品"的 tools.ts，
+   assembleToolPool 函数可能是 undefined！
+```
+
+画成图：
+
+```
+tools.ts ──加载──→ TeamCreateTool.ts
+                        │
+                        └──加载──→ teamHelpers.ts
+                                       │
+                                       └──加载──→ tools.ts  ← 💥 它还在加载第一步呢！
+```
+
+这就像你翻开手册第 5 章"招聘"，第 5 章说"请参阅完整手册"，但你手里这本手册还只印到第 4 章——第 5 章就是你正在读的这一页。**死循环**。
+
+### 解法一：Lazy Getter — "先留个电话，需要时再联系"
+
+Claude Code 的解法很聪明：**不在一开始就加载 TeamCreateTool，而是留一个"电话号码"**（一个函数），等真正需要时再打电话去取。
+
+```tsx
+// 📜 src/tools.ts（第 61-72 行）
+
+// ❌ 静态 import — 立刻加载，会触发循环
+// import { TeamCreateTool } from './tools/TeamCreateTool/TeamCreateTool.js'
+
+// ✅ Lazy getter — 只是定义一个函数，不立刻加载
+const getTeamCreateTool = () =>
+  require('./tools/TeamCreateTool/TeamCreateTool.js').TeamCreateTool
+
+const getTeamDeleteTool = () =>
+  require('./tools/TeamDeleteTool/TeamDeleteTool.js').TeamDeleteTool
+
+const getSendMessageTool = () =>
+  require('./tools/SendMessageTool/SendMessageTool.js').SendMessageTool
+```
+
+**对比理解**：
+
+| 写法 | 什么时候加载？ | tools.ts 此时加载完了吗？ | 结果 |
+|------|-------------|------------------------|------|
+| `import { TeamCreateTool } from '...'` | tools.ts 文件**刚开始**加载时 | 没有，还在加载中 | 循环依赖，可能崩溃 |
+| `const get = () => require('...')` | 运行时**真正需要**这个工具时 | 是的，早就加载完了 | 安全 |
+
+回到比喻：这就像手册第 5 章不再写"请参阅完整手册"，而是写"请拨打前台电话 xxx 索取手册"。印刷手册时不需要手册已经存在，只需要知道电话号码就行。等新员工真正需要手册时，手册早就印好了，打电话就能拿到。
+
+### 解法二：参数传递 — "你别自己去拿，我帮你拿好送过来"
+
+`AgentTool`（生成子 Agent 的工具）用了另一招：它需要调用 `assembleToolPool()`（从 tools.ts 导出的函数），但它不让下游模块自己去 import，而是**自己调用后把结果传下去**。
+
+```tsx
+// 📜 src/tools/AgentTool/AgentTool.tsx（第 569-577 行）
+
+// AgentTool 自己调用 assembleToolPool（它 import tools.ts 是安全的）
+const workerTools = assembleToolPool(workerPermissionContext, appState.mcp.tools)
+
+// 然后把结果作为参数传给 runAgent
+// runAgent 就不需要自己去 import tools.ts 了 → 避免了循环
+runAgent({ ..., availableTools: workerTools })
+```
+
+```tsx
+// 📜 src/tools/AgentTool/runAgent.ts（第 293-296 行）
+
+// runAgent 的参数定义——注释里明确写了为什么
+/** Precomputed tool pool for the worker agent.
+ *  Computed by the caller (AgentTool.tsx) to avoid a
+ *  circular dependency between runAgent and tools.ts. */
+availableTools: Tools   // ← 别人帮我拿好了，我直接用
+```
+
+回到比喻：这就像"招聘"章节不再说"请参阅完整手册"，而是说"请使用随附的工具清单"——由写这一章的人（AgentTool）提前准备好清单夹在里面，这章本身不需要引用手册。
+
+### 解法三：函数体内的 Lazy Require — "等到开门营业再进货"
+
+还有一种情况：`builtInAgents.ts` 需要加载 Coordinator 模式的 Agent，但 Coordinator 模块依赖 tools，tools 依赖 AgentTool，AgentTool 又导入 builtInAgents——四步循环。
+
+解法是把 `require()` 放在**函数体内**，而不是文件顶部：
+
+```tsx
+// 📜 src/tools/AgentTool/builtInAgents.ts（第 32-42 行）
+
+// 文件顶部 —— 这里不写 import，因为会循环
+// ❌ import { getCoordinatorAgents } from '../../coordinator/workerAgent.js'
+
+export function getBuiltInAgents() {
+  // 函数体内 —— 只有真正调用这个函数时才加载
+  if (feature('COORDINATOR_MODE')) {
+    // ✅ require 在函数里面，不在文件顶部
+    const { getCoordinatorAgents } =
+      require('../../coordinator/workerAgent.js')  // 此时所有模块都已加载完
+    return getCoordinatorAgents()
+  }
+}
+```
+
+注释里清楚标注了循环链：`coordinatorMode → tools → AgentTool → builtInAgents`。
+
+回到比喻：这就像一家店说"先把门面装修好（文件加载），等开门营业（函数被调用）再去进货（require）"。装修时不需要货物，进货时门面已经装修好了——时间错开，就不会死锁。
+
+### 三种解法总结
+
+| 解法 | 一句话解释 | 比喻 |
+|------|-----------|------|
+| **Lazy Getter** | 用函数包裹 require，推迟到首次使用时 | "留个电话号码，需要时再联系" |
+| **参数传递** | 调用方预先算好结果，传参给被调用方 | "我帮你拿好送过来，你别自己去拿" |
+| **函数体 Require** | require 放在函数体内，不在文件顶部 | "先装修，等开门营业再进货" |
+
+> **核心思想**：循环依赖的本质是"时序"问题——A 加载时需要 B，B 加载时需要 A，但它们不可能同时加载完。所有三种解法的共同点是同一个字：**等**。把"立刻需要"变成"等一会儿再要"。等到所有模块都加载完毕，循环自然就不存在了。
+>
+> 这也是为什么源码注释里反复强调 **"at module init time"**（模块初始化时）—— 循环依赖只在这个时刻才是致命的。一旦过了这个时刻，谁引用谁都没关系。
 
 ## 工具分类全景
 
