@@ -2,14 +2,13 @@
 
 > 当你在终端输入 `$ claude "fix this bug"` 按下回车，到屏幕上出现第一个字符，中间发生了什么？这一章带你走完整条链路。
 
-**状态：编写中 (WIP)** — 目前覆盖了 cli.tsx 入口和 init.ts 的部分内容。
-
 ## 本章结构
 
 | 节 | 主题 | 核心问题 |
 |---|------|---------|
 | [1.0 涉及的文件与目录](./10-files-overview.md) | Files Overview | 启动流程涉及哪些源文件？ |
 | [1.1 cli.tsx — 真正的第一行代码](./11-cli-entry.md) | CLI Entry Point | 程序是如何用 "按需加载" 实现极速启动的？ |
+| [1.2 main.tsx — 3400 行的总指挥](./12-main-tsx.md) | Main Orchestrator | 并行预取、信任检查、启动性能监控 |
 
 ## 前置知识
 
