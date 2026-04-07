@@ -443,6 +443,85 @@ Skill 的本质就是**一段预写好的 Prompt**。当 Claude 调用 `SkillToo
 
 所以 Skill 不是一种新的执行机制，而是对 **Prompt + Agent** 的封装。引擎完全不知道 Skill 的存在——它只看到 SkillTool 这一个 Tool。
 
+### Skill 的发现机制：模型就是搜索引擎
+
+> **读者问**：Skill 可以有很多（用户自定义 + 插件 + MCP），当 Skill 数量达到几百甚至上千时，Claude 是怎么找到对的那个的？有向量检索吗？有关键词匹配吗？
+
+**答案是：没有。** 当前稳定版的 Claude Code 没有任何匹配或搜索机制。
+
+#### 当前方案：全量塞进 Prompt
+
+Skill 的"发现"完全依赖一个叫 `skill_listing` 的 attachment：
+
+```
+每轮对话开始
+  │
+  ▼
+getSkillListingAttachments()
+  │
+  ├── 从 5 个来源加载所有 Skill
+  │     bundled（内建 ~17 个）
+  │     skills/ 目录（用户自定义）
+  │     commands/ 目录（遗留格式）
+  │     plugin（第三方插件）
+  │     mcp（MCP 服务器提供的）
+  │
+  ├── formatCommandsWithinBudget()
+  │     预算 = 上下文窗口的 1%（200K → ~8000 字符）
+  │     每条描述最多 250 字符
+  │     超预算 → 截断描述 → 极端情况只保留名字
+  │
+  └── 作为 system-reminder 注入对话
+        "The following skills are available for use with the Skill tool:
+         - commit: Create a git commit...
+         - review-pr: Review a pull request...
+         - pdf: Use this skill whenever..."
+```
+
+模型看到这个列表后，自己判断该调用哪个 Skill。`findCommand()` 只是个精确匹配——模型已经选好了名字，这一步只是验证名字存不存在：
+
+```tsx
+// commands.ts — 没有任何模糊匹配或语义搜索
+function findCommand(commandName, commands) {
+  return commands.find(_ =>
+    _.name === commandName ||
+    getCommandName(_) === commandName ||
+    _.aliases?.includes(commandName)
+  )
+}
+```
+
+**真正的"搜索引擎"就是 Claude 自己。**
+
+#### 这个方案的瓶颈
+
+当 Skill 数量增长到几百、上千时，问题就出现了：
+
+- **Token 浪费**：1% 的上下文窗口被 Skill 列表占据，skill 越多、留给实际任务的空间越少
+- **描述被截断**：预算不够时，描述被砍到 20 字符甚至只剩名字，模型没有足够信息做判断
+- **选错或漏选**：模型在一堆名字里"盲猜"，准确率随 Skill 数量增长而下降
+
+#### 实验中的解法：语义搜索发现
+
+Claude Code 在 feature flag `EXPERIMENTAL_SKILL_SEARCH` 后面做了一套新方案：
+
+1. **缩小列表** — `skill_listing` 只注入 bundled + MCP（≤30 个），不再塞全部
+2. **语义发现** — 新增 `skill_discovery` 机制，对用户输入做语义搜索，推荐 top-N 相关 Skill
+3. **远程加载** — 通过 `remoteSkillLoader` 支持从远端按需下载 Skill
+
+```
+稳定版                          实验版
+─────────────                   ─────────────
+skill_listing（全量）            skill_listing（仅 bundled + MCP）
+                                + skill_discovery（语义搜索推荐）
+↓                               ↓
+模型从完整列表里选               模型从精简列表 + 动态推荐里选
+↓                               ↓
+findCommand() 精确匹配           findCommand() 精确匹配
+```
+
+> **关于 Skill 的大规模检索问题**，我们的工作 [Memento: Ontology-Guided Skill Learning for Adaptive Coding Agents](https://arxiv.org/abs/2603.18743) 提出了基于本体论引导的 Skill 组织与检索方案，解决了当 Skill 库增长到大规模时的精准匹配问题。感兴趣的读者可以参考。
+
 > 关于 Skill 的具体定义方式、用户自定义 Skill、MCP Skill 等内容，详见**第 8 章：扩展机制**。
 
 ---
