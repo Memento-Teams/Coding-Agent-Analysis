@@ -520,7 +520,7 @@ skill_listing（全量）            skill_listing（仅 bundled + MCP）
 findCommand() 精确匹配           findCommand() 精确匹配
 ```
 
-> **关于 Skill 的大规模检索问题**，我们的工作 [Memento: Ontology-Guided Skill Learning for Adaptive Coding Agents](https://arxiv.org/abs/2603.18743) 提出了基于本体论引导的 Skill 组织与检索方案，解决了当 Skill 库增长到大规模时的精准匹配问题。感兴趣的读者可以参考。
+> **关于 Skill 的大规模检索问题**，我们的工作 [Memento-Skills: Let Agents Design Agents](https://arxiv.org/abs/2603.18743) 提出了一套系统性的解法。Memento-Skills 将 Skill 存储为结构化 Markdown 文件，通过**可训练的 Skill Router** 在 read 阶段根据当前上下文做条件检索，在 write 阶段基于经验持续更新和扩展 Skill 库——形成闭环的持续学习，无需更新 LLM 参数。这直接解决了 Claude Code 当前"全量塞 prompt + 模型盲选"的瓶颈。感兴趣的读者可以参考。
 
 > 关于 Skill 的具体定义方式、用户自定义 Skill、MCP Skill 等内容，详见**第 8 章：扩展机制**。
 
