@@ -147,4 +147,4 @@ Claude 说要用某个工具
 
 > **关注点分离到了方法级别**：权限系统只调 `checkPermissions()`，不关心执行细节；UI 层只调 `renderXxx()`，不关心权限逻辑；引擎只调 `call()`，不关心怎么渲染。改权限逻辑不影响 UI，改 UI 不影响执行。
 
-> **下一节**：[3.3-3.4 注册与权限](./33-registration-and-permissions.md)
+> **下一节**：[3.3-3.4 注册与权限](./32-registration-and-permissions.md)

@@ -1,17 +1,19 @@
-# 3.9-3.12 模式切换、网络与元操作工具
+# 3.13-3.17 模式切换、网络与元操作工具
 
 > 这些工具覆盖了 Claude Code 的剩余能力：Plan/Worktree 模式切换、网络搜索与抓取、MCP/LSP 集成、以及 SkillTool 等元操作。
 
-## 3.9 模式切换类
+---
 
-### 3.9.1 EnterPlanModeTool — 进入规划模式
+## 3.13 模式切换类
+
+### 3.13.1 EnterPlanModeTool — 进入规划模式
 
 将权限模式从 `default`/`auto` 切换到 `plan`。Plan 模式下只允许只读操作，Claude 只能"想"不能"做"。
 
 - **Agent 中不可用**：子 Agent 不能进入 Plan 模式（通过 `context.agentId` 检测）
 - **Channel 模式不可用**：无终端的 Channel 模式下禁用（Plan 审批对话框无法交互）
 
-### 3.9.2 ExitPlanModeTool (V2) — 退出规划模式
+### 3.13.2 ExitPlanModeTool (V2) — 退出规划模式
 
 ```tsx
 export const ExitPlanModeV2Tool = buildTool({
@@ -24,7 +26,7 @@ export const ExitPlanModeV2Tool = buildTool({
 - **模式恢复**：智能恢复到进入 Plan 前的模式。如果 auto 模式的 gate 在此期间被关闭了，回退到 `default` 而不是 `auto`
 - **团队审批流**：队友的计划需要领导审批，审批通过后才能开始执行
 
-### 3.9.3 EnterWorktreeTool — 创建 Git Worktree 隔离
+### 3.13.3 EnterWorktreeTool — 创建 Git Worktree 隔离
 
 ```tsx
 export const EnterWorktreeTool = buildTool({
@@ -47,7 +49,7 @@ export const EnterWorktreeTool = buildTool({
 - **禁止嵌套**：已经在 Worktree 中时不能再创建
 - **缓存全清**：切换目录后所有基于路径的缓存都要重建
 
-### 3.9.4 ExitWorktreeTool — 退出 Worktree
+### 3.13.4 ExitWorktreeTool — 退出 Worktree
 
 - `keep`：保留 Worktree 和分支，只切回原目录
 - `remove`：杀 tmux session → 删 Worktree → 恢复原目录
@@ -56,9 +58,9 @@ export const EnterWorktreeTool = buildTool({
 
 ---
 
-## 3.10 网络与搜索类
+## 3.14 网络与搜索类
 
-### 3.10.1 WebFetchTool — 抓取网页
+### 3.14.1 WebFetchTool — 抓取网页
 
 ```tsx
 export const WebFetchTool = buildTool({
@@ -75,7 +77,7 @@ export const WebFetchTool = buildTool({
 - **预批准域名白名单**：某些可信域名跳过权限检查
 - **拒绝认证 URL**：Google Docs、Confluence、Jira 等需要登录的页面直接拒绝
 
-### 3.10.2 WebSearchTool — 网络搜索
+### 3.14.2 WebSearchTool — 网络搜索
 
 ```tsx
 export const WebSearchTool = buildTool({
@@ -93,7 +95,7 @@ export const WebSearchTool = buildTool({
 - **实时进度追踪**：从流式 JSON 中提取搜索关键词，实时更新 UI
 - 在结果末尾追加"必须引用来源"提醒
 
-### 3.10.3 ToolSearchTool — 延迟工具发现
+### 3.14.3 ToolSearchTool — 延迟工具发现
 
 ```tsx
 export const ToolSearchTool = buildTool({
@@ -112,9 +114,9 @@ export const ToolSearchTool = buildTool({
 
 ---
 
-## 3.11 MCP 与 LSP 集成类
+## 3.15 MCP 与 LSP 集成类
 
-### 3.11.1 MCPTool — MCP 工具代理（模板工具）
+### 3.15.1 MCPTool — MCP 工具代理（模板工具）
 
 ```tsx
 export const MCPTool = buildTool({
@@ -135,16 +137,16 @@ MCPTool 实例化流程：
   → 注册到工具池中
 ```
 
-### 3.11.2 McpAuthTool — MCP OAuth 认证
+### 3.15.2 McpAuthTool — MCP OAuth 认证
 
 > **伪工具模式**：未认证的 MCP 服务器会生成一个 McpAuthTool 作为占位。用户触发认证后，这个伪工具被替换为真正的 MCP 工具。OAuth 回调在后台运行，不阻塞主流程。
 
-### 3.11.3 ListMcpResourcesTool / ReadMcpResourceTool
+### 3.15.3 ListMcpResourcesTool / ReadMcpResourceTool
 
 - **ListMcpResourcesTool**：从连接的 MCP 服务器获取资源列表，有 LRU 缓存，启动时预取。一个服务器失败不影响其他
 - **ReadMcpResourceTool**：通过 MCP 协议读取指定资源，二进制内容自动存磁盘（防止 Base64 撞爆上下文）
 
-### 3.11.4 LSPTool — 语言服务器协议
+### 3.15.4 LSPTool — 语言服务器协议
 
 ```tsx
 export const LSPTool = buildTool({
@@ -164,9 +166,9 @@ export const LSPTool = buildTool({
 
 ---
 
-## 3.12 元操作与交互类
+## 3.16 元操作与交互类
 
-### 3.12.1 SkillTool — 执行 Slash Commands
+### 3.16.1 SkillTool — 执行 Slash Commands
 
 ```tsx
 export const SkillTool = buildTool({
@@ -205,17 +207,17 @@ SkillTool.call({ skill: "simplify" })
 
 三种来源：内建 Skill（`skills/bundled/`）、用户自定义（`~/.claude/skills/`）、MCP Skill。
 
-### 3.12.2 AskUserQuestionTool — 向用户提问
+### 3.16.2 AskUserQuestionTool — 向用户提问
 
 向用户展示选择题（1-4 个问题，每个 2-4 个选项），支持 markdown/代码预览、多选、唯一性约束。
 
-### 3.12.3 ConfigTool — 读写配置
+### 3.16.3 ConfigTool — 读写配置
 
 支持嵌套路径（如 `permissions.defaultMode`），某些设置需要异步校验（如调 API 确认模型可用）。
 
-### 3.12.4 BriefTool / SleepTool
+### 3.16.4 BriefTool / SleepTool
 
 - **BriefTool**：需要 `KAIROS` feature flag，向用户发送带附件的消息
 - **SleepTool**：代码在 feature-gated 仓库中（未开源），用户可随时中断，定期收到 `<tick>` 提示
 
-> **下一节**：[3.13-3.14 调度远程与工程启示](./313-scheduling-and-insights.md)
+> **下一节**：[3.18-3.22 调度、远程与工程启示](./36-scheduling-and-insights.md)

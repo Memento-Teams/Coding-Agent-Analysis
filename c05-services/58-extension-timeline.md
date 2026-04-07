@@ -46,8 +46,8 @@
 | 机制 | 详细讲解位置 |
 |------|------------|
 | MCP | [c05 服务层 - MCP](../c05-services/53-mcp-and-tool-execution.md) / [c08 扩展机制 - MCP](../c08-extensions/83-mcp.md) |
-| Subagents | [c00 Agent 系统](./03-agent-system.md) / [c03 AgentTool](../c03-tool-system/37-agent-and-task-tools.md) |
+| Subagents | [c00 Agent 系统](./03-agent-system.md) / [c03 AgentTool](../c03-tool-system/34-agent-and-task-tools.md) |
 | Hooks | [c00 Hooks 专题](./08-hooks-deep-dive.md) |
 | Plugins | [c05 服务层 - Plugin](../c05-services/57-analytics-and-infra.md) / [c08 扩展机制 - Plugins](../c08-extensions/82-plugins.md) |
 | Skills | [c08 扩展机制 - Skills](../c08-extensions/81-skills.md) |
-| Agent Teams | [c00 Agent 系统](./03-agent-system.md) / [c03 Team 工具](../c03-tool-system/37-agent-and-task-tools.md) |
+| Agent Teams | [c00 Agent 系统](./03-agent-system.md) / [c03 Team 工具](../c03-tool-system/34-agent-and-task-tools.md) |

@@ -1,10 +1,12 @@
-# 3.7-3.8 Agent 协作与任务管理工具
+# 3.8-3.12 Agent 协作与任务管理工具
 
 > AgentTool 是 Claude Code 实现"多 Agent 协作"的核心，SendMessage 和 Team 系列工具围绕它构建了完整的团队协作能力。Task 系列则提供了结构化的任务管理。
 
-## 3.7 Agent 与团队协作类
+---
 
-### 3.7.1 AgentTool — 生成子 Agent（14 个文件）
+## 3.8 Agent 与团队协作类
+
+### 3.8.1 AgentTool — 生成子 Agent（14 个文件）
 
 **目录结构**：
 
@@ -51,7 +53,7 @@ built-in/            ← 5 个内建 Agent 定义
 
 ---
 
-### 3.7.2 SendMessageTool — Agent 间通信
+### 3.8.2 SendMessageTool — Agent 间通信
 
 ```tsx
 export const SendMessageTool = buildTool({
@@ -75,7 +77,7 @@ export const SendMessageTool = buildTool({
 
 ---
 
-### 3.7.3 TeamCreateTool — 创建 Agent 团队
+### 3.8.3 TeamCreateTool — 创建 Agent 团队
 
 ```tsx
 export const TeamCreateTool = buildTool({
@@ -104,15 +106,15 @@ export const TeamCreateTool = buildTool({
 
 ---
 
-### 3.7.4 TeamDeleteTool — 销毁团队
+### 3.8.4 TeamDeleteTool — 销毁团队
 
 无参数。**拒绝带活跃成员的销毁**——必须先优雅关闭所有成员，再销毁团队。清理：目录、worktree、颜色分配、信箱、AppState。
 
 ---
 
-## 3.8 任务管理类
+## 3.9 任务管理类
 
-### 3.8.1 TaskCreateTool
+### 3.9.1 TaskCreateTool
 
 ```tsx
 export const TaskCreateTool = buildTool({
@@ -125,13 +127,13 @@ export const TaskCreateTool = buildTool({
 
 创建新任务（状态 `pending`），执行 task-created 钩子，自动展开 UI 任务列表。
 
-### 3.8.2 TaskGetTool / TaskListTool
+### 3.9.2 TaskGetTool / TaskListTool
 
 - **TaskGetTool**：根据 ID 获取任务详情（subject、description、status、blocking 关系）
 - **TaskListTool**：列出所有任务，自动过滤内部任务（`_internal` 标记），清理已完成任务的 `blockedBy` 引用
 - 两者都是 `isConcurrencySafe: true`、`isReadOnly: true`
 
-### 3.8.3 TaskUpdateTool
+### 3.9.3 TaskUpdateTool
 
 ```tsx
 export const TaskUpdateTool = buildTool({
@@ -147,12 +149,12 @@ export const TaskUpdateTool = buildTool({
 - `status: 'deleted'` 会删除任务文件
 - 队友标记任务为 `in_progress` 时自动设为 owner
 
-### 3.8.4 TaskStopTool / TaskOutputTool
+### 3.9.4 TaskStopTool / TaskOutputTool
 
 - **TaskStopTool**（别名 `KillShell`）：停止运行中的后台任务
 - **TaskOutputTool**（别名 `AgentOutputTool`、`BashOutputTool`）：获取任务输出，支持阻塞/非阻塞模式。已标记为**废弃**，推荐用 Read 工具直接读取输出文件
 
-### 3.8.5 TodoWriteTool — 结构化任务清单
+### 3.9.5 TodoWriteTool — 结构化任务清单
 
 ```tsx
 export const TodoWriteTool = buildTool({
@@ -166,4 +168,4 @@ export const TodoWriteTool = buildTool({
 
 > **TodoWrite vs Task 系统**：TodoWriteTool 是简单的清单（给用户看进度），Task 系统是完整的任务管理（有 ID、阻塞关系、所有权）。
 
-> **下一节**：[3.9-3.12 模式切换、网络与元操作](./39-mode-web-meta-tools.md)
+> **下一节**：[3.13-3.17 模式切换、网络与元操作](./35-mode-web-meta-tools.md)

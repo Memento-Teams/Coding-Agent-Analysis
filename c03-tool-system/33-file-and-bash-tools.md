@@ -1,6 +1,8 @@
-# 3.5-3.6 文件操作与命令执行工具
+# 3.5-3.7 文件、搜索与命令执行工具
 
 > 文件操作类和 BashTool 是 Claude Code 中使用频率最高的工具。本节深入它们的实现细节。
+
+---
 
 ## 3.5 文件操作类
 
@@ -150,9 +152,9 @@ export const GrepTool = buildTool({
 
 ---
 
-## 3.6 命令执行类
+## 3.7 命令执行类
 
-### 3.6.1 BashTool — 最复杂的工具（18 个文件）
+### 3.7.1 BashTool — 最复杂的工具（18 个文件）
 
 **目录结构**：
 
@@ -204,7 +206,7 @@ export const BashTool = buildTool({
 
 ---
 
-### 3.6.2 PowerShellTool — Windows 版的 BashTool
+### 3.7.2 PowerShellTool — Windows 版的 BashTool
 
 和 BashTool 类似，但针对 Windows PowerShell 环境：
 - 支持 PowerShell 别名的大小写不敏感解析
@@ -212,4 +214,4 @@ export const BashTool = buildTool({
 - 检测并阻止 `Start-Sleep` 超过 2 秒的命令
 - 助手模式下阻塞命令 15 秒后自动后台化
 
-> **下一节**：[3.7-3.8 Agent 协作与任务管理](./37-agent-and-task-tools.md)
+> **下一节**：[3.8-3.12 Agent 协作与任务管理](./34-agent-and-task-tools.md)
