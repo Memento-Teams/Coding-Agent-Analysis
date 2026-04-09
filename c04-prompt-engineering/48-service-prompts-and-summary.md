@@ -2,31 +2,49 @@
 
 > 本节覆盖隐藏在实现文件中的精彩 Prompt——包括"做梦"、陪伴精灵、自主模式——以及全部 Prompt 工程技巧的总结。
 
+---
+
 ## 4.8 服务级 Prompt
 
 ### 4.8.1 Session Memory 模板
 
+> **源文件**：`src/services/SessionMemory/prompts.ts`（324 行）
+
+Session Memory 是 Claude Code 跨压缩边界保持连续性的核心机制。每次 Compact 发生时，Session Memory 被更新并注入新的上下文。
+
+**10 个固定章节**：
+
 ```
-9 个固定章节：
 - Session Title
 - Current State         ← 最关键，确保连续性
 - Task Specification
 - Files and Functions
 - Workflow
 - Errors & Corrections
-- Documentation
+- Codebase and System Documentation
 - Learnings
+- Key Results
 - Worklog
-
-规则：保留章节标题、每节 <2000 tokens、总量 <12000 tokens
 ```
+
+**规则**：保留章节标题和斜体描述、每节 <2000 tokens、总量 <12000 tokens。
+
+**设计特点**：
+- **Current State 最高优先级**：Prompt 中明确强调 "Current State section is MOST IMPORTANT for continuity"。这是因为压缩后 Claude 最需要知道的是"上次做到哪了"。
+- **10 节而非自由格式**：固定章节等于给 Claude 一个"信息提取清单"。自由格式的会话摘要会遗漏关键维度（如错误信息、工作流程）。
+- **元指令隔离**：更新指令开头声明 "This message and these instructions are NOT part of the actual user conversation"，防止 Claude 混淆系统指令和用户消息。
+- **结构保护**："NEVER modify section headers or italic descriptions" 确保模板在多次更新后结构完整。
+
+---
 
 ### 4.8.2 Memory 提取 Prompt
 
+> **源文件**：`src/services/extractMemories/prompts.ts`（154 行）
+
 ```
 两步流程：
-1. 写入记忆文件（带 frontmatter）
-2. 在 MEMORY.md 中添加索引
+1. Phase 1: Read ALL existing memory files (single turn)
+2. Phase 2: Write ALL new/updated memories (single turn)
 
 MEMORY.md 规则：
 - 仅索引，不放内容
@@ -35,7 +53,20 @@ MEMORY.md 规则：
 - 检查重复后再写
 ```
 
+**两个构建函数**：
+- `buildExtractAutoOnlyPrompt()` — 仅自动记忆（个人作用域）
+- `buildExtractCombinedPrompt()` — 自动 + 团队记忆（团队作用域）
+
+**设计特点**：
+- **两阶段批处理**：先读后写，而非交替读写。每次 LLM 调用都有成本，批处理最小化 API 调用次数。同时，先读所有已有记忆再写新的，确保不重复存储。
+- **自动 vs 团队分离**：团队记忆有更严格的写入标准（组织级知识），自动记忆更宽松（个人工作笔记）。两个函数注入不同的分类法说明。
+- **内容范围限制**："content from last ~N messages only"，只从最近的对话中提取记忆，避免处理整个对话历史的成本。
+
+---
+
 ### 4.8.3 Magic Docs Prompt
+
+> **源文件**：`src/services/MagicDocs/prompts.ts`（127 行）
 
 ```
 Philosophy: HIGH SIGNAL ONLY
@@ -45,6 +76,11 @@ Philosophy: HIGH SIGNAL ONLY
 - Update in-place, remove outdated info
 ```
 
+**设计特点**：
+- **HIGH SIGNAL ONLY 哲学**：Magic Docs 不是代码文档，而是"导航地图"。它只记录 WHY（为什么这样设计）、HOW（关键流程）、WHERE（入口在哪）、PATTERNS（使用的模式），不记录具体 API 签名或实现步骤——那些可以从代码中直接读到。
+- **原地更新**："Update in-place, remove outdated info"。每次更新不是追加，而是替换过时内容。这防止了 Magic Docs 随时间无限膨胀。
+- **元指令隔离**：和 Session Memory 一样，开头声明这不是用户对话的一部分。
+
 ---
 
 ## 4.8b 隐藏在实现文件中的 Prompt
@@ -52,6 +88,8 @@ Philosophy: HIGH SIGNAL ONLY
 以下 Prompt 不在标准的 `prompt.ts` 文件中，而是嵌入在各种实现文件里。它们同样精彩。
 
 ### 4.8b.1 Dream Prompt — 记忆整合"做梦"
+
+> **源文件**：`src/services/autoDream/consolidationPrompt.ts`
 
 这是整个系统中最诗意的 Prompt 名称。当 Claude Code 空闲时，它会"做梦"——回顾和整理记忆。
 
@@ -72,6 +110,8 @@ memories so that future sessions can orient quickly.
 
 ### 4.8b.2 记忆相关性选择 Prompt
 
+> **源文件**：`src/memdir/memdir.ts`
+
 用 Sonnet 模型快速筛选最相关的 5 条记忆：
 
 ```
@@ -82,6 +122,8 @@ as it processes a user's query.
 **关键规则**：最多选 5 条。过滤掉最近使用过的工具的"使用参考"类文档（避免重复），但保留关于那些工具的**警告和注意事项**。
 
 ### 4.8b.3 Proactive/Autonomous Mode Prompt
+
+> **源文件**：`src/constants/prompts.ts`（proactive 相关段落）
 
 当 Claude Code 在自主模式下运行时的行为指令：
 
@@ -117,6 +159,8 @@ you're idle — the user doesn't need "still waiting" messages.
 
 ### 4.8b.4 Token Budget 续写 Prompt
 
+> **源文件**：`src/constants/prompts.ts`（tokenBudget 相关段落）
+
 当用户设置了 Token 目标（如 "+500k"）时：
 
 ```
@@ -135,6 +179,8 @@ If you stop early, the system will automatically continue you.
 
 ### 4.8b.5 Buddy/Companion Prompt — 陪伴精灵
 
+> **源文件**：`src/buddy/prompt.ts`（36 行）
+
 ```
 A small ${species} named ${name} sits beside the user's input box
 and occasionally comments in a speech bubble. You're not ${name} —
@@ -151,6 +197,8 @@ handles that.
 
 ### 4.8b.6 Default Agent Prompt
 
+> **源文件**：`src/tools/AgentTool/prompt.ts`（默认 system prompt 段落）
+
 ```
 You are an agent for Claude Code, Anthropic's official CLI for Claude.
 Complete the task fully — don't gold-plate, but don't leave it half-done.
@@ -159,6 +207,8 @@ Complete the task fully — don't gold-plate, but don't leave it half-done.
 > **Prompt 技巧 — 双向约束**："Don't gold-plate, but don't leave it half-done" — 同时限制过度和不足。比单方向的 "be thorough" 或 "be concise" 更精确。
 
 ### 4.8b.7 System Prompt Section 缓存机制
+
+> **源文件**：`src/constants/systemPromptSections.ts`
 
 ```tsx
 // 安全的：memoized，直到 /clear 或 /compact 才重新计算
