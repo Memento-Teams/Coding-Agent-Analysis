@@ -168,4 +168,6 @@ export const TodoWriteTool = buildTool({
 
 > **TodoWrite vs Task 系统**：TodoWriteTool 是简单的清单（给用户看进度），Task 系统是完整的任务管理（有 ID、阻塞关系、所有权）。
 
+> **深度展开**：[3.8a 多 Agent 系统深度剖析](./34a-agent-system-deep-dive.md) — Agent 执行引擎、信箱通信、Coordinator 编排、Worktree 隔离、生命周期管理的完整实现细节。
+>
 > **下一节**：[3.13-3.17 模式切换、网络与元操作](./35-mode-web-meta-tools.md)

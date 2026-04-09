@@ -10,6 +10,7 @@
 | [3.3-3.4 注册与权限](./32-registration-and-permissions.md) | Registration & Permissions | 42 个工具如何注册？权限系统如何四层防御？ |
 | [3.5-3.7 文件、搜索与命令执行](./33-file-and-bash-tools.md) | File, Search & Bash Tools | FileRead/Write/Edit、Glob/Grep 和 BashTool 的内部细节 |
 | [3.8-3.12 Agent 协作与任务管理](./34-agent-and-task-tools.md) | Agent & Task Tools | AgentTool、SendMessage、Team、Task 系列 |
+| [3.8a 多 Agent 系统深度剖析](./34a-agent-system-deep-dive.md) | Agent System Deep Dive | 执行引擎、信箱通信、Coordinator 编排、Worktree 隔离、生命周期管理 |
 | [3.13-3.17 模式切换、网络与元操作](./35-mode-web-meta-tools.md) | Mode, Web & Meta Tools | Plan/Worktree 模式、WebFetch/Search、MCP/LSP、SkillTool 等 |
 | [3.18-3.22 调度、远程与工程启示](./36-scheduling-and-insights.md) | Scheduling & Insights | Cron、RemoteTrigger、未开源工具、设计总结 |
 
