@@ -155,23 +155,132 @@ MEMORY.md 只是指针，不是记忆本身。实际内容在各个 `.md` 文件
 2. **按需读取**——Claude 看到索引后，只 Read 需要的记忆文件
 3. **独立更新**——修改一条记忆不需要重写索引
 
-## 11.4.4 记忆相关性筛选
+## 11.4.4 记忆相关性筛选：三阶段检索
 
-当记忆文件很多时，不能全部注入对话——会撑满 Token 预算。MemDir 用 **Sonnet 模型**做快速相关性筛选：
+当记忆文件很多时，不能全部注入对话——会撑满 Token 预算。MemDir 用**三阶段流程**完成检索，核心是用 Sonnet 做相关性排序。
+
+### 阶段 1：扫描（memoryScan.ts）
+
+递归读取 memory 目录下所有 `.md` 文件（排除 MEMORY.md），**只读每个文件的前 30 行来解析 frontmatter**：
 
 ```tsx
-async function findRelevantMemories(
-  query: string,          // 用户的当前请求
-  allMemories: Memory[],  // 所有记忆的摘要（来自 MEMORY.md 索引）
-  maxCount = 5            // 最多选 5 条
-): Promise<Memory[]> {
-  // 用 Sonnet（快速、便宜）做相关性判断
-  const selected = await callModelForSelection(query, allMemories, maxCount)
+// memoryScan.ts
+const MAX_MEMORY_FILES = 200
+const FRONTMATTER_MAX_LINES = 30
 
-  // 过滤：如果刚刚用过某个工具，不注入那个工具的"使用参考"
-  // 但保留关于那个工具的"警告和注意事项"
-  return filterRecentlyUsedToolDocs(selected)
+async function scanMemoryFiles(memoryDir, signal): Promise<MemoryHeader[]> {
+  const entries = await readdir(memoryDir, { recursive: true })
+  const mdFiles = entries.filter(f => f.endsWith('.md') && basename(f) !== 'MEMORY.md')
+
+  // 对每个文件：只读前 30 行，解析 frontmatter
+  // 提取：filename, filePath, mtimeMs, description, type
+  // 按修改时间降序排列，取最新的 200 个
 }
+```
+
+产出：一个 `MemoryHeader[]` 数组，每条包含文件名、路径、修改时间、description、type。**不读文件正文。**
+
+然后将 headers 格式化为 **manifest 文本**，交给下一阶段：
+
+```tsx
+// memoryScan.ts
+function formatMemoryManifest(memories: MemoryHeader[]): string {
+  // 每条格式：- [type] filename (ISO时间戳): description
+  // 例如：
+  // - [feedback] feedback_testing.md (2026-04-10T...): 测试必须用真实数据库
+  // - [user] user_role.md (2026-04-08T...): 高级后端工程师，Go 专家
+}
+```
+
+> **注意**：Sonnet 看到的是从 frontmatter 扫描生成的 manifest，**不是 MEMORY.md 索引**。MEMORY.md 是给主模型在 System Prompt 中看的全局概览；manifest 是给 Sonnet 筛选用的实时清单。两者内容可能不同步——比如用户手动创建了记忆文件但忘了更新 MEMORY.md，manifest 仍然能扫描到。
+
+### 阶段 2：Sonnet 选择（findRelevantMemories.ts）
+
+用 **sideQuery**（独立 API 调用，不进入主对话流）调用 Sonnet，输入是用户消息 + manifest，输出是最多 5 个文件名：
+
+```tsx
+// findRelevantMemories.ts
+const SELECT_MEMORIES_SYSTEM_PROMPT = `You are selecting memories that will be useful
+to Claude Code as it processes a user's query. You will be given the user's query and
+a list of available memory files with their filenames and descriptions.
+
+Return a list of filenames for the memories that will clearly be useful (up to 5).
+Only include memories that you are certain will be helpful.
+- If unsure, do not include.
+- If none useful, return empty list.
+- If recently-used tools provided, do not select their usage docs
+  (but DO select warnings/gotchas about those tools).`
+
+async function selectRelevantMemories(query, memories, signal, recentTools) {
+  const manifest = formatMemoryManifest(memories)
+  const toolsSection = recentTools.length > 0
+    ? `\n\nRecently used tools: ${recentTools.join(', ')}` : ''
+
+  const result = await sideQuery({
+    model: getDefaultSonnetModel(),
+    system: SELECT_MEMORIES_SYSTEM_PROMPT,
+    messages: [{
+      role: 'user',
+      content: `Query: ${query}\n\nAvailable memories:\n${manifest}${toolsSection}`,
+    }],
+    max_tokens: 256,
+    output_format: {
+      type: 'json_schema',
+      schema: {
+        type: 'object',
+        properties: {
+          selected_memories: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['selected_memories'],
+      },
+    },
+    signal,
+  })
+  // 解析 JSON，过滤无效文件名，返回 string[]
+}
+```
+
+几个设计要点：
+
+- **强制 JSON Schema 输出**：`output_format` 保证返回结构化结果，不需要正则解析
+- **max_tokens: 256**：只需要返回几个文件名，极小的输出预算
+- **recentTools 过滤**：如果 Claude 正在用某个工具（如 `mcp__X__spawn`），不再注入该工具的使用文档（已经在用了），但保留其 warnings/gotchas
+- **失败容错**：sideQuery 失败或被 abort 时返回空数组，不阻塞主流程
+
+### 阶段 3：读取与注入（attachments.ts）
+
+被选中的记忆文件被完整读取（超 50 行或 8KB 则截断），附加新鲜度元数据（几天前写的），作为 `<system-reminder>` 附件注入当前对话。超过 1 天的记忆会标记 staleness 警告。
+
+### 异步预取：不阻塞用户
+
+整个三阶段流程在 `query.ts` 的每轮对话中**异步触发**（`startRelevantMemoryPrefetch()`），不阻塞主模型的响应生成。如果用户取消或当前轮结束前预取未完成，会被 abort。
+
+```
+用户输入
+  │
+  ├──→ 主模型开始处理（不等记忆）
+  │
+  └──→ 后台：扫描 → Sonnet 选择 → 读取
+         │
+         └──→ 结果注入为 system-reminder 附件
+```
+
+### 完整流程图
+
+```
+memory/
+├── MEMORY.md              ──→ 始终注入 System Prompt（全局概览）
+├── user_role.md
+├── feedback_testing.md         ┐
+├── project_auth.md             │ 扫描 frontmatter
+├── ref_linear.md               │    ↓
+└── ...                         │ manifest 文本
+                                │    ↓
+                                │ Sonnet sideQuery（选 ≤5 个）
+                                │    ↓
+                                │ 读取选中文件全文
+                                │    ↓
+                                └─→ 注入为 system-reminder 附件
 ```
 
 ### 为什么用 LLM 做筛选而不是向量检索？
@@ -179,12 +288,30 @@ async function findRelevantMemories(
 1. **记忆数量少**（通常 < 50 条）——LLM 直接判断相关性比向量检索更准确
 2. **语义理解强**——"修 auth bug" 和 "认证重构由合规驱动" 之间的关联，向量检索不一定能捕捉
 3. **Sonnet 又快又便宜**——一次筛选 < 0.5 秒，< $0.01
+4. **零基础设施**——不需要向量数据库、不需要 embedding 模型、不需要索引构建
 
 ### 为什么最多 5 条？
 
 更多记忆 = 更多 Token = 更多成本 + 更多噪音。5 条是经验值——足以提供关键上下文，又不会淹没当前对话。
 
-## 11.4.5 记忆的写入：两阶段批处理
+## 11.4.5 两个 200 的限制：主题维度，不是对话维度
+
+MemDir 有两个容易混淆的数量限制，都定义在源码中：
+
+```tsx
+// memdir.ts
+const MAX_ENTRYPOINT_LINES = 200   // MEMORY.md 索引最多 200 行
+const MAX_ENTRYPOINT_BYTES = 25_000 // MEMORY.md 最大 25KB
+
+// memoryScan.ts
+const MAX_MEMORY_FILES = 200        // 扫描时最多读 200 个记忆文件
+```
+
+**关键理解：200 是主题数上限，不是对话数上限。** 记忆按主题聚合（如 `user_role.md`、`feedback_testing.md`），不按对话拆分。同一主题的信息会被更新覆盖（"Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one."），所以实际记忆文件数通常远小于 200。
+
+扫描时按修改时间排序取最新的 200 个文件，再由 Sonnet 从中选出最相关的 5 个注入上下文。真正的瓶颈不在 200 的上限，而在**每轮只选 5 个**的筛选策略。
+
+## 11.4.6 记忆的写入：两阶段批处理
 
 记忆的写入由 `extractMemories` 子 Agent 完成，采用**两阶段策略**：
 
@@ -202,7 +329,7 @@ Phase 2: Write ALL new/updated memories (single turn)
 
 **为什么不交替读写？** 每次 LLM 调用都有成本。两阶段策略把所有读操作集中在一轮，所有写操作集中在下一轮，最小化 API 调用次数。同时，先读后写确保不会创建重复的记忆。
 
-## 11.4.6 记忆的可靠性：教 AI 怀疑自己
+## 11.4.7 记忆的可靠性：教 AI 怀疑自己
 
 MemDir 的 Prompt 中有一段非常精妙的"认知校准"：
 
@@ -224,6 +351,84 @@ Before recommending:
 这不是禁止 Claude 使用记忆——而是要求它**验证后再使用**。记忆是有时间戳的：上次会话时 `src/auth.ts` 还在，但可能今天被重命名为 `src/authentication.ts` 了。Claude 不应该盲目推荐一个可能已经不存在的文件。
 
 > 这是整个 Prompt 系统中最高级的认知校准技巧之一——对抗 LLM 把自身记忆当作事实的倾向。
+
+## 11.4.8 会话历史召回：默认不开启的实验功能
+
+一个常见疑问：MemDir 只存高层总结，Claude 能不能回溯之前的**对话原文**？
+
+### 对话历史确实存在
+
+每次会话的完整对话记录以 JSONL 格式存储在项目目录下：
+
+```
+~/.claude/projects/<project-slug>/
+├── <session-uuid-1>.jsonl    ← 会话 1 的完整记录
+├── <session-uuid-2>.jsonl    ← 会话 2 的完整记录
+├── ...
+└── memory/                   ← MemDir 记忆文件
+    ├── MEMORY.md
+    └── *.md
+```
+
+每个 JSONL 文件可能有数十万 tokens（实测单个文件 60 万+ tokens），包含完整的用户消息、Assistant 回复、工具调用和结果。
+
+### 但默认不搜索
+
+源码中有一个 **"Searching past context"** 功能（`memdir.ts:375`），由 GrowthBook 远程 feature flag `tengu_coral_fern` 控制：
+
+```tsx
+// memdir.ts:375-406
+export function buildSearchingPastContextSection(autoMemDir: string): string[] {
+  if (!getFeatureValue_CACHED_MAY_BE_STALE('tengu_coral_fern', false)) {
+    return []  // 默认返回空——不注入搜索指令
+  }
+  // 开启后，向 System Prompt 注入两级搜索策略：
+  // 1. 先搜 memory 目录的 .md 主题文件
+  // 2. 最后手段：grep 搜索 .jsonl 会话记录
+}
+```
+
+开启后，模型被允许按两级策略搜索：
+
+```
+搜索优先级：
+1. 先搜 memory/*.md 主题文件（快、精确）
+2. 最后手段：grep 搜索 *.jsonl 会话记录（慢、大文件）
+```
+
+注释明确写道 `"last resort — large files, slow"`——JSONL 搜索是兜底方案。
+
+### 为什么默认不开启？
+
+`tengu_coral_fern` 是 GrowthBook（A/B 测试平台）上的远程 feature flag，默认值 `false`，由 Anthropic 服务端控制。这意味着它还在灰度实验阶段，原因可能包括：
+
+1. **性能问题**：JSONL 文件巨大（单文件 60 万+ tokens），grep 搜索很慢
+2. **成本问题**：搜出的对话原文注入上下文会大量消耗 tokens
+3. **信噪比低**：对话原文包含大量工具调用结果等噪音，有用信息密度远低于 MemDir 的精炼记忆
+4. **质量验证中**：Anthropic 通过灰度发布评估该功能是否值得默认开启
+
+### 实际效果：跨 Session 的信息传递几乎完全依赖 MemDir
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Session 1                                               │
+│   用户说："不要 mock 数据库"                              │
+│   → extractMemories 提取 → feedback_testing.md          │
+└───────────────────────┬─────────────────────────────────┘
+                        │ 记忆文件（.md）
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│ Session 2                                               │
+│   1. System Prompt 注入 MEMORY.md 索引                  │
+│   2. Sonnet 选出相关记忆 → 注入 feedback_testing.md      │
+│   3. Claude 看到"不要 mock 数据库"                       │
+│                                                         │
+│   ✗ 不会自动读取 Session 1 的 JSONL 对话原文              │
+│   △ 除非 tengu_coral_fern 开启且模型主动 grep            │
+└─────────────────────────────────────────────────────────┘
+```
+
+这意味着 MemDir 的记忆质量至关重要——如果 `extractMemories` 在 Session 1 结束时漏掉了某个关键信息，Session 2 默认情况下无法回溯到原始对话来弥补。
 
 ---
 
