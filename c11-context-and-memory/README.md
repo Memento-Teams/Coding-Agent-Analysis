@@ -43,6 +43,9 @@
 |---|------|---------|
 | [11.9 跨系统对比](./119-cross-system-comparison.md) | Cross-System | 架构哲学差异、压缩策略对比、记忆存储/检索/写入模型对比、成本分析 |
 
+| [11.A MemPalace 分析](./11a-mempalace-analysis.md) | MemPalace | 向量检索 + 知识图谱方案，三方对比（MemDir vs Hermes vs MemPalace） |
+| [11.B Codex 分析](./11b-codex-analysis.md) | Codex (OpenAI) | 两阶段记忆管线 + 渐进式检索 + Skills 系统，四方全对比 |
+
 ## 核心概念：三种时间尺度的记忆
 
 两个系统都围绕"秒级 → 分钟级 → 天级"三种时间尺度组织记忆，但具体实现截然不同：
